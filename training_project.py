@@ -10,7 +10,6 @@ import matplotlib.pyplot as plt
 import os
 
 # --- 1. CONFIGURATION & HIERARCHY DEFINITION ---
-# Based on the taxonomy in the project slides [cite: 62-91]
 
 HIERARCHY = {
     "Music": ["Solo percussion", "Solo instrument", "Multiple instruments"],
@@ -31,7 +30,7 @@ for parent, children in HIERARCHY.items():
         CLASSES.append(child)
 
 CLASS_TO_IDX = {c: i for i, c in enumerate(CLASSES)}
-NUM_CLASSES = len(CLASSES) # Should be 23 [cite: 3]
+NUM_CLASSES = len(CLASSES) 
 
 # Audio Config
 SAMPLE_RATE = 44100  # Adjust based on your actual wav files
@@ -94,7 +93,7 @@ class HeterogeneousAudioDataset(Dataset):
         return spec, label
 
 # --- 3. MODEL ARCHITECTURE ---
-# Simple CNN as suggested in "Simplest case: CNN-based supervised classification" 
+# CNN-based supervised classification"
 
 class SimpleAudioCNN(nn.Module):
     def __init__(self, num_classes=23):
