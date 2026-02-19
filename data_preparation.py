@@ -6,9 +6,24 @@ Email: tommi.t.salonen@tuni.fi
 """
 
 import os
+from typing import MutableMapping, Union
 import numpy as np
+import librosa
+import pickle
 
-def split_data(audio_files, split_file):
+def serialize_features_and_metadata(file: str, features_and_classes: MutableMapping[str, Union[np.ndarray, int]])\
+        -> None:
+    """Serializes the features and classes.
+
+    :param file: File to dump the serialized features
+    :type file: str
+    :param features_and_classes: Features and classes.
+    :type features_and_classes: dict[str, numpy.ndarray|int]
+    """
+    with open(file, 'wb') as pkl_file:
+        pickle.dump(features_and_classes, pkl_file)
+
+def extract_features(audio_files, split_file):
     """
     Split the data into training, validation, and test sets based on the provided csv file.
     Audio files are moved to dataset folder folders named 'train', 'val', and 'test' based
@@ -34,17 +49,50 @@ def split_data(audio_files, split_file):
     
     os.makedirs(split_dir, exist_ok=True)
 
-    split_file_names = []
-
     # Process each line in the split file
     for line in lines[1:]:  # Skip the header
         file_name = line.strip().split(',')[0]  # Assuming the first column contains the file names
-        split_file_names.append(file_name)
-    
-    # Move the audio files to the corresponding split directory
-    for audio_file in audio_files:
-        if os.path.basename(audio_file) in split_file_names:
-            os.rename(audio_file, os.path.join(split_dir, os.path.basename(audio_file)))
+        class_idx = line.strip().split(',')[2]  # Assuming the second column contains the class labels
+        top_class = line.strip().split(',')[3]  # Assuming the third column contains the top class predictions
+        confidence_score = line.strip().split(',')[4]  # Assuming the fifth column contains the confidence scores
+
+        # Extract the corresponding audio file
+        audio_file = next((f for f in audio_files if os.path.basename(f) == file_name), None)
+
+        # Calculate the Mel spectrogram for the audio file
+        if audio_file:
+            mel = calculate_mel_spectrogram(audio_file)
+        else:
+            print(f"Audio file {file_name} not found in the provided audio files list.")
+            continue
+
+        # Serialize the features and metadata
+        features_and_metadata = {   
+                                    'features': mel,
+                                    'class_idx': class_idx,
+                                    'top_class': top_class ,
+                                    'confidence_score': confidence_score
+                                }
+
+        # Serialize the features and metadata to a file in the corresponding split directory
+        serialize_features_and_metadata(os.path.join(split_dir, file_name + '.pkl'), features_and_metadata)
+
+
+def calculate_mel_spectrogram(audio_file):
+    """
+    Calculate the Mel spectrogram for a given audio file.
+
+    Parameters:
+    audio_file (str): Path to the audio file.
+
+    Returns:
+    np.ndarray: Mel spectrogram of the audio file.
+    """
+    y, sr = librosa.load(audio_file, sr=None)
+    mel_spectrogram = librosa.feature.melspectrogram(y=y, sr=sr)
+    mel_spectrogram_db = librosa.power_to_db(mel_spectrogram, ref=np.max)
+
+    return mel_spectrogram_db
 
 def main():
     # Define paths
@@ -58,7 +106,7 @@ def main():
     for split_file in os.listdir(split_dir):
         if split_file.endswith('.csv'):
             split_file_path = os.path.join(split_dir, split_file)
-            split_data(audio_files, split_file_path)
+            extract_features(audio_files, split_file_path)
 
 
 if __name__ == "__main__":
