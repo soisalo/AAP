@@ -33,6 +33,7 @@ print(f"Initialized {NUM_CLASSES} classes under {len(HIERARCHY)} parents.")
 
 class PickleAudioDataset(Dataset):
     """
+    NOTE: 
     Loads precomputed Mel spectrograms and labels from .pkl files.
     Each .pkl file should contain a dict with keys:
     'mel': Tensor of shape [1, n_mels, time]
@@ -47,12 +48,28 @@ class PickleAudioDataset(Dataset):
     def __getitem__(self, idx):
         with open(self.pkl_files[idx], "rb") as f:
             data = pickle.load(f)
-        mel = data['mel']        # Shape: [1, n_mels, time]
-        label = data['label']    # Already an integer
-        confidence = data.get('confidence', 5)  # default to 5 if missing
-        weight = (confidence-1) / 4  # Normalize to [0, 1]
+        mel = data['features']               # precomputed Mel spectrogram
+        label = data['class_idx']            # integer label
+        confidence = data.get('confidence_score', 5)  # default to 5 if missing
+        weight = (confidence - 1) / 4.0     # Normalize 1-5 → 0-1
+
         return mel, label, weight
 
+class CLAPAudioDataset(Dataset):
+    """Dataset for precomputed CLAP embeddings and labels with optional confidence."""
+    def __init__(self, npy_files):
+        self.npy_files = npy_files
+
+    def __len__(self):
+        return len(self.npy_files)
+
+    def __getitem__(self, idx):
+        data = np.load(self.npy_files[idx], allow_pickle=True).item()  # assume dict format
+        embedding = torch.tensor(data['embedding'], dtype=torch.float32)
+        label = data['class_idx']
+        confidence = data.get('confidence_score', 5)
+        weight = (confidence - 1) / 4.0
+        return embedding, label, weight
 # --- 3. SIMPLE AUDIO CNN MODEL ---
 
 class SimpleAudioCNN(nn.Module):
@@ -94,6 +111,19 @@ class SimpleAudioCNN(nn.Module):
         x = self.global_pool(x)
         x = self.fc_layers(x)
         return x
+    
+class SimpleCLAPClassifier(nn.Module):
+    def __init__(self, embedding_dim=512, num_classes=NUM_CLASSES):
+        super().__init__()
+        self.fc = nn.Sequential(
+            nn.Linear(embedding_dim, 256),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(256, num_classes)
+        )
+
+    def forward(self, x):
+        return self.fc(x)
 
 # --- 4. HIERARCHICAL METRICS ---
 
