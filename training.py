@@ -3,6 +3,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 import os
 import numpy as np
+import pickle
 from dataset_classes import PickleAudioDataset, SimpleAudioCNN, calculate_hierarchical_metrics, NUM_CLASSES
 
 def train_model_pickle(train_dir="./data/train_pkl", val_dir="./data/val_pkl", save_path="audio_cnn_model.pth"):
