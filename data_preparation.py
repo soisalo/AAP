@@ -38,7 +38,7 @@ def process_files(fetures_dir, split_file):
     :type split_file: str
     """
     # Read the split file
-    with open(split_file, 'r') as f:
+    with open(split_file, 'r', encoding='utf-8') as f:
         lines = f.readlines()
 
     base_dir = 'Project/AAP'
