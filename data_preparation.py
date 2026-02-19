@@ -11,7 +11,6 @@ Email: tommi.t.salonen@tuni.fi
 import os
 from typing import MutableMapping, Union
 import numpy as np
-import librosa
 import pickle
 
 def serialize_features_and_metadata(file: str, features_and_classes: MutableMapping[str, Union[np.ndarray, int]])\
@@ -42,13 +41,15 @@ def process_files(fetures_dir, split_file):
     with open(split_file, 'r') as f:
         lines = f.readlines()
 
+    base_dir = 'Project/AAP'
+
     # Create directory for this split
     if 'train' in split_file:
-        split_dir = 'dataset/train'
+        split_dir = os.path.join(base_dir, 'dataset/train')
     elif 'val' in split_file:
-        split_dir = 'dataset/val'
+        split_dir = os.path.join(base_dir, 'dataset/val')
     elif 'test' in split_file:
-        split_dir = 'dataset/test'
+        split_dir = os.path.join(base_dir, 'dataset/test')
     else:
         raise ValueError("Split file name must contain 'train', 'val', or 'test' to determine the split type.")
     
@@ -77,8 +78,8 @@ def process_files(fetures_dir, split_file):
 
 def main():
     # Define paths
-    split_dir = 'splits' # Directory containing the split csv files (train.csv, val.csv, test.csv)
-    audio_embeddings_dir = 'clap_audio_embeddings' # Directory containing the audio files
+    split_dir = 'bsdk10k-splits' # Directory containing the split csv files (train.csv, val.csv, test.csv)
+    audio_embeddings_dir = 'features/features/clap_audio_embeddings' # Directory containing the audio files
 
     # Process each split file
     for split_file in os.listdir(split_dir):
