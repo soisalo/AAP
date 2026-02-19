@@ -1,5 +1,8 @@
 """
-Docstring for data_preparation
+This module contains functions for preparing the data for training, validation, and testing.
+It includes functions for extracting features from audio files, splitting the data into training,
+validation, and test sets based on provided csv files, and serializing the features and metadata
+to files in the corresponding split directories.
 
 Author: Tommi Salonen
 Email: tommi.t.salonen@tuni.fi
@@ -97,7 +100,7 @@ def calculate_mel_spectrogram(audio_file):
 def main():
     # Define paths
     audio_dir = 'audio_files'
-    split_dir = 'splits'
+    split_dir = 'splits' # Directory containing the split csv files (train.csv, val.csv, test.csv)
 
     # Get list of audio files
     audio_files = [os.path.join(audio_dir, f) for f in os.listdir(audio_dir) if f.endswith('.wav')]
