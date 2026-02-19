@@ -34,7 +34,9 @@ print(f"Initialized {NUM_CLASSES} classes under {len(HIERARCHY)} parents.")
 class PickleAudioDataset(Dataset):
     """
     Loads precomputed Mel spectrograms and labels from .pkl files.
-    Each .pkl file should contain a dict: {'mel': torch.Tensor, 'label': int}
+    Each .pkl file should contain a dict with keys:
+    'mel': Tensor of shape [1, n_mels, time]
+    'label': Integer class index
     """
     def __init__(self, pkl_files):
         self.pkl_files = pkl_files
@@ -47,11 +49,17 @@ class PickleAudioDataset(Dataset):
             data = pickle.load(f)
         mel = data['mel']        # Shape: [1, n_mels, time]
         label = data['label']    # Already an integer
-        return mel, label
+        confidence = data.get('confidence', 5)  # default to 5 if missing
+        weight = (confidence-1) / 4  # Normalize to [0, 1]
+        return mel, label, weight
 
 # --- 3. SIMPLE AUDIO CNN MODEL ---
 
 class SimpleAudioCNN(nn.Module):
+    """A simple CNN architecture for audio classification.
+    Input: [batch_size, 1, n_mels, time]
+    Output: [batch_size, num_classes]
+    """
     def __init__(self, num_classes=NUM_CLASSES):
         super(SimpleAudioCNN, self).__init__()
         self.conv_layers = nn.Sequential(
@@ -90,6 +98,8 @@ class SimpleAudioCNN(nn.Module):
 # --- 4. HIERARCHICAL METRICS ---
 
 def calculate_hierarchical_metrics(preds, targets, lambda_val=0.5):
+    """Calculates hierarchical F1, precision, and recall based on the 
+    defined hierarchy and lambda penalty."""
     preds = np.array(preds)
     targets = np.array(targets)
     n_samples = len(preds)
