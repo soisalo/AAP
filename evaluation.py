@@ -1,109 +1,207 @@
 """
 Evaluation module for classification tasks.
+This module provides accuracy computation, per-class accuracy, confusion matrix computation and plotting,
+hierarchical evaluation metrics and full model evaluation pipeline
 
 Author: Venla Numminen
 email: venla.numminen@tuni.fi
 """
 import numpy as np
-from training import train_model_pickle
-from sklearn.metrics import confusion_matrix
+import torch
+import pickle
+from dataset_classes import SimpleAudioCNN, NUM_CLASSES, CLASSES
+from sklearn.metrics import confusion_matrix, classification_report
 import matplotlib.pyplot as plt
 import seaborn as sns
+from dataset_classes import calculate_hierarchical_metrics
 
 
-# Compute overall accuracy
-def compute_overall_accuracy(predictions, targets):
+def compute_accuracy(predictions, targets):
+    """
+    Compute overall classification accuracy.
+    Args:
+        predictions: Model predicted class labels.
+        targets: Ground truth class labels.
+    Returns:
+        Float accuracy value between 0 and 1.
+    """
+
     predictions = np.array(predictions)
     targets = np.array(targets)
+
+    if len(predictions) != len(targets):
+        raise ValueError("Predictions and targets must have same length.")
+
     return (predictions == targets).mean()
 
 
-
-# Compute per-class accuracy
 def compute_per_class_accuracy(predictions, targets, class_names):
-    predictions = np.array(predictions)
-    targets = np.array(targets)
+    """
+    Compute accuracy separately for each class.
+    This measures how well the model performs on each individual class.
+    Uses confusion matrix for calculation.
+    Args:
+        predictions: Model predictions.
+        targets: Ground truth labels.
+        class_names: List of class label names.
+    Returns:
+        Dictionary mapping class name -> accuracy.
+        If a class has no samples, returns None for that class.
+    """
+    cm = confusion_matrix(targets, predictions)
 
-    per_class = {}
-    for i, cls in enumerate(class_names):
-        idx = np.where(targets == i)[0]
-        if len(idx) == 0:
-            per_class[cls] = None
-        else:
-            per_class[cls] = (predictions[idx] == targets[idx]).mean()
+    per_class = {
+        class_names[i]: (
+            cm[i, i] / cm[i].sum() if cm[i].sum() > 0 else None
+        )
+        for i in range(len(class_names))
+    }
+
     return per_class
 
 
-
-# Confusion matrix + plotting
-def plot_confusion_matrix(predictions, targets, class_names, figsize=(12, 10)):
-    cm = confusion_matrix(targets, predictions)
-    plt.figure(figsize=figsize)
-    sns.heatmap(cm, annot=False, cmap="Blues",
-                xticklabels=class_names,
-                yticklabels=class_names)
-    plt.xlabel("Predicted")
-    plt.ylabel("True")
-    plt.title("Confusion Matrix")
-    plt.tight_layout()
-    plt.show()
-    return cm
+def compute_confusion_matrix(predictions, targets):
+    """Return confusion matrix."""
+    return confusion_matrix(targets, predictions)
 
 
+def evaluate_model(model, dataloader, device, class_names, lambda_val=0.5):
+    """
+    Evaluate a trained PyTorch model on a dataset.
 
-# Optional: Hierarchy-based scoring
-# hierarchy should be dict:  class_index -> parent_category
-# e.g., hierarchy = {0:"human", 1:"human", 2:"machine", ...}
-def compute_hierarchical_score(predictions, targets, hierarchy):
-    scores = []
-    for p, t in zip(predictions, targets):
-        if p == t:
-            scores.append(1.0)
-        elif hierarchy[p] == hierarchy[t]:
-            scores.append(0.5)  # mild penalty
-        else:
-            scores.append(0.0)  # full penalty
-    return sum(scores) / len(scores)
+    This function:
+    - Runs inference on the entire dataset
+    - Collects predictions
+    - Computes all evaluation metrics
+    - Returns them in a dictionary
+    Args:
+        model: Trained PyTorch model.
+        dataloader: DataLoader for validation/test data.
+        device: CPU or CUDA device.
+        class_names: List of class names.
+        lambda_val: Weight parameter for hierarchical metric.
+    Returns:
+        Dictionary containing all evaluation results.
+    """
+
+    model.eval()
+    predictions, targets = [], []
+
+    with torch.no_grad():
+        for specs, labels, _ in dataloader:
+            specs = specs.to(device)
+            labels = labels.to(device)
+
+            outputs = model(specs)
+            _, predicted = torch.max(outputs, 1)
+
+            predictions.extend(predicted.cpu().numpy())
+            targets.extend(labels.cpu().numpy())
+
+    return evaluate_predictions(
+        predictions,
+        targets,
+        class_names ,
+        lambda_val=lambda_val
+    )
 
 
 
-# Full evaluation wrapper
-def evaluate(predictions, targets, class_names, hierarchy=None, plot_cm=True):
+def evaluate_predictions(predictions, targets, class_names, lambda_val: float = 0.5):
+    """
+    Compute all evaluation metrics from predictions and targets.
+
+    This function is independent of PyTorch and can be used
+    for any classification results.
+
+    Metrics included:
+    - Overall accuracy
+    - Per-class accuracy
+    - Confusion matrix
+    - Precision / Recall / F1-score
+    - Hierarchical metrics
+
+    Returns:
+        Dictionary with all computed metrics.
+    """
+
     results = {}
 
-    # overall accuracy
-    results["overall_accuracy"] = compute_overall_accuracy(predictions, targets)
+    # Accuracy
+    results["accuracy"] = compute_accuracy(predictions, targets)
 
-    # per-class accuracy
+    # Per-class accuracy
     results["per_class_accuracy"] = compute_per_class_accuracy(
-        predictions, targets, class_names)
+        predictions, targets, class_names
+    )
 
-    # confusion matrix
-    if plot_cm:
-        results["confusion_matrix"] = plot_confusion_matrix(
-            predictions, targets, class_names)
-    else:
-        results["confusion_matrix"] = confusion_matrix(targets, predictions)
+    # Confusion matrix
+    results["confusion_matrix"] = compute_confusion_matrix(
+        predictions, targets
+    )
 
-    # optional hierarchy score
-    if hierarchy is not None:
-        results["hierarchical_score"] = compute_hierarchical_score(
-            predictions, targets, hierarchy)
+    # Standard classification metrics
+    results["classification_report"] = classification_report(
+        targets,
+        predictions,
+        target_names=class_names,
+        output_dict=True
+    )
+
+    # Hierarchical metrics 
+    hF, hP, hR = calculate_hierarchical_metrics(
+        predictions,
+        targets,
+        lambda_val=lambda_val
+    )
+
+    results["hierarchical_F"] = hF
+    results["hierarchical_P"] = hP
+    results["hierarchical_R"] = hR
 
     return results
 
+def plot_confusion_matrix(cm, class_names,figsize=(12, 10), save_path=None):
+
+    """
+    Plot confusion matrix using a heatmap.
+    Args:
+        cm: Confusion matrix as a 2D numpy array.
+        class_names: List of class names for axes labels.
+        figsize: Size of the plot.
+        save_path: If provided, saves the plot to this path.
+    """
+
+    plt.figure(figsize=figsize)
+
+    sns.heatmap(
+        cm,
+        annot=True,
+        xticklabels=class_names,
+        yticklabels=class_names
+    )
+
+    plt.xlabel("Predicted Label")
+    plt.ylabel("True Label")
+    plt.title("Confusion Matrix")
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path)
+
+    plt.show()
 
 
 if __name__ == "__main__":
 
 
+    #results = evaluate_model(model, val_loader, device, class_names)
 
-    #results = evaluate(predictions, targets, class_names, hierarchy)
+    #print(results["accuracy"])
+    #print(results["hierarchical_F"])
 
-    #print("--- Evaluation Results ---")
-    #print("Overall accuracy:", results["overall_accuracy"])
-    #print("Per-class accuracy:", results["per_class_accuracy"])
-    #if "hierarchical_score" in results:
-    #    print("Hierarchical score:", results["hierarchical_score"])
+    #plot_confusion_matrix(
+        #results["confusion_matrix"],
+        #class_names)
 
     pass
