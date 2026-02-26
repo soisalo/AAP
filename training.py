@@ -4,8 +4,7 @@ from torch.utils.data import DataLoader
 import os
 import numpy as np
 import pickle
-import matplotlib.pyplot as plt
-from dataset_classes import PickleAudioDataset, SimpleCLAPClassifier, calculate_hierarchical_metrics, NUM_CLASSES
+from dataset_classes import PickleAudioDataset, SimpleCLAPClassifier, calculate_hierarchical_metrics, NUM_CLASSES, IDX_PARENT_MAP
 from plotting_utils import plot_training_metrics
 
 """
@@ -22,32 +21,29 @@ The training process includes:
 
 2026-06-01: Initial version created.
 """
-def hierarchical_loss(outputs, targets, child_to_parent_idx, penalty_weight=2.0):
+
+def hierarchical_loss(outputs, targets, mapping_tensor, penalty_weight=2.0):
     """
     outputs: [batch, NUM_CLASSES]
     targets: [batch] (the sub-class indices)
     """
-    # 1. Get the standard per-sample loss
-    criterion = torch.nn.CrossEntropyLoss(reduction='none')
-    base_loss = criterion(outputs, targets)
 
-    # 2. Get the predicted class index
+    # 1. Get the predicted class index (highest logit)
     _, preds = torch.max(outputs, 1)
 
-    # 3. Get Parent IDs for both predictions and targets
-    pred_parents = child_to_parent_idx[preds]
-    target_parents = child_to_parent_idx[targets]
+    # 2. Look up Parent IDs for both Predictions and Targets
+    # This is a vectorized operation on the GPU
+    pred_parents = mapping_tensor[preds]
+    target_parents = mapping_tensor[targets]
 
-    # 4. Determine where the top-category is wrong
-    # True if parents are different, False if they are the same
-    wrong_parent_mask = (pred_parents != target_parents).float()
-
-    # 5. Apply Logic: 
-    # If same parent: loss becomes 0 (as requested)
-    # If different parent: apply a penalty multiplier
-    final_loss = base_loss * wrong_parent_mask * penalty_weight
-
-    return final_loss.mean()
+    # 3. Apply the logic:
+    # If parents are DIFFERENT: Apply penalty_weight
+    # If parents are THE SAME: Apply 0.0 (per your request)
+    mask = torch.where(pred_parents != target_parents, 
+                       float(penalty_weight), 
+                       0.0)
+    
+    return mask
 
 def train_model_pickle(train_dir="./dataset/train", val_dir="./dataset/val", save_path="audio_cnn_model.pth"):
     # --- 1. Collect .pkl files ---
@@ -79,18 +75,24 @@ def train_model_pickle(train_dir="./dataset/train", val_dir="./dataset/val", sav
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = SimpleCLAPClassifier(num_classes=NUM_CLASSES).to(device)
     optimizer = optim.Adam(model.parameters(), lr=0.001)
-
+    criterion = torch.nn.CrossEntropyLoss()
     # Metrics lists
-    train_losses, val_accuracies, val_hFs = [], [], []
+    train_losses, val_losses, val_accuracies, val_hFs = [], [], [], []
 
     print(f"Training on {device}...")
 
-    num_epochs = 10
+    num_epochs = 40
+    patience = 5
+    total_val_loss = 0.0
+    # Create the mapping tensor from your dictionary
+    # Index = Child Class ID, Value = Parent Class ID
+    mapping_list = [IDX_PARENT_MAP[i] for i in range(len(IDX_PARENT_MAP))]
+    mapping_tensor = torch.tensor(mapping_list).to(device)
+
     for epoch in range(num_epochs):
         # --- Training ---
         model.train()
         running_loss = 0.0
-        top_class_penalty = 1.5
         
         for specs, labels,  weights, top_classes in train_loader:
             #print(f"Labels: {labels}, {type(labels)}")
@@ -105,20 +107,9 @@ def train_model_pickle(train_dir="./dataset/train", val_dir="./dataset/val", sav
 
             outputs = model(specs)
             
-            # 2. Get the predicted SUB-class index
-            _, predicted_sub_indices = torch.max(outputs, 1)
+            loss = criterion(outputs, labels)
 
-            # 3. Map the PREDICTED sub-class to its PARENT class
-            # We still need that mapping table we built earlier for the model's prediction
-            pred_top_classes = child_to_parent_idx[predicted_sub_indices]
-
-            loss = torch.nn.CrossEntropyLoss(reduction='none')(outputs, labels)
-
-            #Give a bigger penalty if the predicted top-level class is wrong
-            hierarchy_mask = (pred_top_classes != top_classes).float()
-            
-            # 1 if same parent, penalty if different
-            hierarchy_penalty = hierarchy_mask * top_class_penalty + (1 - hierarchy_mask)  
+            hierarchy_penalty = hierarchical_loss(outputs, labels, mapping_tensor, penalty_weight=2.0)
 
             #Apply the confidence-based weights and the hierarchy penalty to the loss
             weighted_loss = (loss * weights * hierarchy_penalty).mean()
@@ -135,21 +126,43 @@ def train_model_pickle(train_dir="./dataset/train", val_dir="./dataset/val", sav
         model.eval()
         val_preds, val_targets = [], []
         with torch.no_grad():
-            for specs, labels, _, top_classes in val_loader:
+            for specs, labels, weights, top_classes in val_loader:
                 specs = specs.to(device)
                 labels = labels.to(device)  # Use sub_labels (second column)
+                weights = weights.to(device)
                 outputs = model(specs)
+
+                # 1. Calculate Validation Loss (using logits, not predictions)
+                # We apply the same weighted/hierarchical logic here for consistency
+                batch_loss = criterion(outputs, labels)
+
+                total_val_loss += batch_loss.item()
+
+                
                 _, predicted = torch.max(outputs, 1)
                 val_preds.extend(predicted.cpu().numpy())
                 val_targets.extend(labels.cpu().numpy())
 
+                #Implement patience-based early stopping based on validation accuracy
+                if epoch > 0 and val_acc < val_accuracies[-1]:
+                    patience_count += 1
+                    if patience_count >= patience:  # Stop if no improvement for 5 epochs
+                        print(f"Early stopping triggered at epoch {epoch+1}")
+                        break
+                else:
+                    patience_count = 0
+                
+
         val_acc = np.mean(np.array(val_preds) == np.array(val_targets))
+        val_loss = total_val_loss / len(val_loader)
         hF, hP, hR = calculate_hierarchical_metrics(val_preds, val_targets, lambda_val=0.5)
         val_accuracies.append(val_acc)
+        val_losses.append(val_loss)
         val_hFs.append(hF)
 
         print(f"Epoch {epoch+1}/{num_epochs} | "
               f"Train Loss: {epoch_loss:.4f} | "
+              f"Val Loss: {val_loss:.4f} | "
               f"Val Acc: {val_acc:.4f} | "
               f"hF: {hF:.4f} (P:{hP:.4f}, R:{hR:.4f})")
 
@@ -158,8 +171,11 @@ def train_model_pickle(train_dir="./dataset/train", val_dir="./dataset/val", sav
     print(f"Model saved to {save_path}")
 
     # --- 6. Plot metrics ---
-    plot_training_metrics(train_losses, val_accuracies, val_hFs, save_path="training_metrics.png")
+    plot_training_metrics(train_losses, val_accuracies, val_losses, val_hFs, save_path="training_metrics.png")
 
+def main():
+    
+    train_model_pickle()
 
 if __name__ == "__main__":
-    train_model_pickle()
+    main()

@@ -17,14 +17,26 @@ HIERARCHY = {
     "Soundscapes": ["Nature", "Indoors", "Urban", "Synthetic/Artificial"]
 }
 
-CLASSES = []
-PARENT_MAP = {}  # Maps child index to parent name
-for parent, children in HIERARCHY.items():
-    for child in children:
-        PARENT_MAP[len(CLASSES)] = parent
-        CLASSES.append(child)
 
-CLASS_TO_IDX = {c: i for i, c in enumerate(CLASSES)}
+
+PARENT_TO_IDX = {name: i for i, name in enumerate(HIERARCHY.keys())}
+
+# 2. Build the IDX_PARENT_MAP 
+# This maps Child Index (0-21) -> Parent Index (0-4)
+IDX_PARENT_MAP = {}
+CLASSES = []
+
+for parent_name, children in HIERARCHY.items():
+    parent_idx = PARENT_TO_IDX[parent_name]
+    for child_name in children:
+        child_idx = len(CLASSES)
+        CLASSES.append(child_name)
+        IDX_PARENT_MAP[child_idx] = parent_idx
+
+# --- Verification ---
+print("Child Index to Parent Index Map:")
+print(IDX_PARENT_MAP)
+
 NUM_CLASSES = len(CLASSES)
 
 print(f"Initialized {NUM_CLASSES} classes under {len(HIERARCHY)} parents.")
@@ -84,7 +96,7 @@ def calculate_hierarchical_metrics(preds, targets, lambda_val=0.5):
         true_cls = targets[i]
         if pred_cls == true_cls:
             w_ij = 1.0
-        elif PARENT_MAP[pred_cls] == PARENT_MAP[true_cls]:
+        elif IDX_PARENT_MAP[pred_cls] == IDX_PARENT_MAP[true_cls]:
             w_ij = lambda_val
         else:
             w_ij = 0.0

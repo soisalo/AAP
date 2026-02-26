@@ -1,11 +1,12 @@
 import matplotlib.pyplot as plt
 
-def plot_training_metrics(train_losses, val_accuracies, val_hFs, save_path=None):
+def plot_training_metrics(train_losses, val_accuracies, val_losses, val_hFs, save_path=None):
     """
     Plots training loss, validation accuracy, and hierarchical F-score.
 
     Args:
         train_losses (list[float]): Training loss per epoch.
+        val_loss (list[float]): Validation loss per epoch.
         val_accuracies (list[float]): Validation accuracy per epoch.
         val_hFs (list[float]): Validation hierarchical F-score per epoch.
         save_path (str, optional): Path to save the figure as PNG. If None, just shows the plot.
@@ -16,7 +17,8 @@ def plot_training_metrics(train_losses, val_accuracies, val_hFs, save_path=None)
     # Training loss
     plt.subplot(1,2,1)
     plt.plot(epochs, train_losses, marker='o', color='tab:blue', label='Train Loss')
-    plt.title('Training Loss')
+    plt.plot(epochs, val_losses, marker='s', color='tab:orange', label='Val Loss')
+    plt.title('Training and Validation Loss')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
     plt.grid(True)
