@@ -61,7 +61,7 @@ def process_files(fetures_dir, split_file):
     for line in lines[1:]:  # Skip the header
         file_name = line.strip().split(',')[0]  # Assuming the first column contains the file names
         class_idx = line.strip().split(',')[2]  # Assuming the second column contains the class labels
-        top_class = line.strip().split(',')[3]  # Assuming the third column contains the top class predictions
+        top_class = top_class_to_idx(line.strip().split(',')[3])  # Assuming the third column contains the top class predictions
         confidence_score = line.strip().split(',')[4]  # Assuming the fifth column contains the confidence scores
 
         feature_vector = np.load(os.path.join(fetures_dir, file_name + '.npy'))  # Load the feature vector from the .npy file
@@ -77,6 +77,23 @@ def process_files(fetures_dir, split_file):
         # Serialize the features and metadata to a file in the corresponding split directory
         serialize_features_and_metadata(os.path.join(split_dir, file_name + '.pkl'), features_and_metadata)
 
+def top_class_to_idx(top_class):
+    """Converts the top class prediction to an integer index.
+
+    :param top_class: The top class prediction as a string.
+    :type top_class: str
+    :return: The integer index corresponding to the top class prediction.
+    :rtype: int
+    """
+    # Define a mapping from top class predictions to integer indices
+    top_class_mapping = {
+        'm': 0,
+        'is': 1,
+        'sp': 2,
+        'fx': 3,
+        'ss': 4
+    }
+    return top_class_mapping.get(top_class, -1)  # Return -1 if the top_class is not found
 
 def main():
     # Define paths
