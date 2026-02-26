@@ -49,70 +49,12 @@ class PickleAudioDataset(Dataset):
         with open(self.pkl_files[idx], "rb") as f:
             data = pickle.load(f)
         mel = data['features']               # precomputed Mel spectrogram
-        label = int(data['class_idx'])          # integer label
-        confidence = int(data.get('confidence_score', 5))# default to 5 if missing
+        label = int(data['class_idx']) # integer label
+        top_class = int(data.get('top_class', -1))  # Optional top-level class
+        confidence = int(data.get('confidence_score', 0))# default to 5 if missing
         weight = (confidence - 1) / 4.0     # Normalize 1-5 → 0-1
 
-        return mel, label, weight
-
-class CLAPAudioDataset(Dataset):
-    """Dataset for precomputed CLAP embeddings and labels with optional confidence."""
-    def __init__(self, npy_files):
-        self.npy_files = npy_files
-
-    def __len__(self):
-        return len(self.npy_files)
-
-    def __getitem__(self, idx):
-        data = np.load(self.npy_files[idx], allow_pickle=True).item()  # assume dict format
-        embedding = torch.tensor(data['embedding'], dtype=torch.float32)
-        label = int(data['class_idx'])
-        #Change confidence to int and print type
-        confidence = int(data.get('confidence_score', 5))
-        print(f"Confidence score type: {type(confidence)}, value: {confidence}")
-        weight = (confidence - 1) / 4.0
-        return embedding, label, weight
-# --- 3. SIMPLE AUDIO CNN MODEL ---
-
-class SimpleAudioCNN(nn.Module):
-    """A simple CNN architecture for audio classification.
-    Input: [batch_size, 1, n_mels, time]
-    Output: [batch_size, num_classes]
-    """
-    def __init__(self, num_classes=NUM_CLASSES):
-        super(SimpleAudioCNN, self).__init__()
-        self.conv_layers = nn.Sequential(
-            nn.Conv2d(1, 32, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(32),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(),
-            nn.MaxPool2d(2)
-        )
-        self.global_pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc_layers = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(256, 128),
-            nn.ReLU(),
-            nn.Dropout(0.5),
-            nn.Linear(128, num_classes)
-        )
-
-    def forward(self, x):
-        x = self.conv_layers(x)
-        x = self.global_pool(x)
-        x = self.fc_layers(x)
-        return x
+        return mel, label, weight, top_class
     
 class SimpleCLAPClassifier(nn.Module):
     def __init__(self, embedding_dim=512, num_classes=NUM_CLASSES):
@@ -127,7 +69,7 @@ class SimpleCLAPClassifier(nn.Module):
     def forward(self, x):
         return self.fc(x)
 
-# --- 4. HIERARCHICAL METRICS ---
+# --- 3. HIERARCHICAL METRICS ---
 
 def calculate_hierarchical_metrics(preds, targets, lambda_val=0.5):
     """Calculates hierarchical F1, precision, and recall based on the 

@@ -22,6 +22,33 @@ The training process includes:
 
 2026-06-01: Initial version created.
 """
+def hierarchical_loss(outputs, targets, child_to_parent_idx, penalty_weight=2.0):
+    """
+    outputs: [batch, NUM_CLASSES]
+    targets: [batch] (the sub-class indices)
+    """
+    # 1. Get the standard per-sample loss
+    criterion = torch.nn.CrossEntropyLoss(reduction='none')
+    base_loss = criterion(outputs, targets)
+
+    # 2. Get the predicted class index
+    _, preds = torch.max(outputs, 1)
+
+    # 3. Get Parent IDs for both predictions and targets
+    pred_parents = child_to_parent_idx[preds]
+    target_parents = child_to_parent_idx[targets]
+
+    # 4. Determine where the top-category is wrong
+    # True if parents are different, False if they are the same
+    wrong_parent_mask = (pred_parents != target_parents).float()
+
+    # 5. Apply Logic: 
+    # If same parent: loss becomes 0 (as requested)
+    # If different parent: apply a penalty multiplier
+    final_loss = base_loss * wrong_parent_mask * penalty_weight
+
+    return final_loss.mean()
+
 def train_model_pickle(train_dir="./dataset/train", val_dir="./dataset/val", save_path="audio_cnn_model.pth"):
     # --- 1. Collect .pkl files ---
     train_files = [os.path.join(train_dir, f) for f in os.listdir(train_dir) if f.endswith(".pkl")]
@@ -63,17 +90,39 @@ def train_model_pickle(train_dir="./dataset/train", val_dir="./dataset/val", sav
         # --- Training ---
         model.train()
         running_loss = 0.0
+        top_class_penalty = 1.5
         
-        for specs, labels,  weights in train_loader:
+        for specs, labels,  weights, top_classes in train_loader:
             #print(f"Labels: {labels}, {type(labels)}")
             #print(f"specs shape: {specs.shape}, {type(specs)}")
             specs = specs.to(device)
             labels = labels.to(device)
             weights = weights.to(device)
+            top_classes = top_classes.to(device)
+
+            #Zero the gradients
             optimizer.zero_grad()
+
             outputs = model(specs)
+            
+            # 2. Get the predicted SUB-class index
+            _, predicted_sub_indices = torch.max(outputs, 1)
+
+            # 3. Map the PREDICTED sub-class to its PARENT class
+            # We still need that mapping table we built earlier for the model's prediction
+            pred_top_classes = child_to_parent_idx[predicted_sub_indices]
+
             loss = torch.nn.CrossEntropyLoss(reduction='none')(outputs, labels)
-            weighted_loss = (loss * weights).mean()
+
+            #Give a bigger penalty if the predicted top-level class is wrong
+            hierarchy_mask = (pred_top_classes != top_classes).float()
+            
+            # 1 if same parent, penalty if different
+            hierarchy_penalty = hierarchy_mask * top_class_penalty + (1 - hierarchy_mask)  
+
+            #Apply the confidence-based weights and the hierarchy penalty to the loss
+            weighted_loss = (loss * weights * hierarchy_penalty).mean()
+            
             weighted_loss.backward()
             optimizer.step()
 
@@ -86,9 +135,9 @@ def train_model_pickle(train_dir="./dataset/train", val_dir="./dataset/val", sav
         model.eval()
         val_preds, val_targets = [], []
         with torch.no_grad():
-            for specs, labels, _ in val_loader:
+            for specs, labels, _, top_classes in val_loader:
                 specs = specs.to(device)
-                labels.to(device)  # Use sub_labels (second column)
+                labels = labels.to(device)  # Use sub_labels (second column)
                 outputs = model(specs)
                 _, predicted = torch.max(outputs, 1)
                 val_preds.extend(predicted.cpu().numpy())
