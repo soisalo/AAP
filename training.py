@@ -5,7 +5,7 @@ import os
 import numpy as np
 import pickle
 import matplotlib.pyplot as plt
-from dataset_classes import PickleAudioDataset, SimpleAudioCNN, calculate_hierarchical_metrics, NUM_CLASSES
+from dataset_classes import PickleAudioDataset, SimpleCLAPClassifier, calculate_hierarchical_metrics, NUM_CLASSES
 from plotting_utils import plot_training_metrics
 
 """
@@ -22,7 +22,7 @@ The training process includes:
 
 2026-06-01: Initial version created.
 """
-def train_model_pickle(train_dir="./data/train_pkl", val_dir="./data/val_pkl", save_path="audio_cnn_model.pth"):
+def train_model_pickle(train_dir="./dataset/train", val_dir="./dataset/val", save_path="audio_cnn_model.pth"):
     # --- 1. Collect .pkl files ---
     train_files = [os.path.join(train_dir, f) for f in os.listdir(train_dir) if f.endswith(".pkl")]
     val_files = [os.path.join(val_dir, f) for f in os.listdir(val_dir) if f.endswith(".pkl")]
@@ -50,7 +50,7 @@ def train_model_pickle(train_dir="./data/train_pkl", val_dir="./data/val_pkl", s
 
     # --- 4. Setup model, device, optimizer ---
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = SimpleAudioCNN(num_classes=NUM_CLASSES).to(device)
+    model = SimpleCLAPClassifier(num_classes=NUM_CLASSES).to(device)
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
     # Metrics lists
@@ -63,11 +63,15 @@ def train_model_pickle(train_dir="./data/train_pkl", val_dir="./data/val_pkl", s
         # --- Training ---
         model.train()
         running_loss = 0.0
-        for specs, labels, weights in train_loader:
-            specs, labels, weights = specs.to(device), labels.to(device), weights.to(device)
+        
+        for specs, labels,  weights in train_loader:
+            print(f"Labels: {labels}, {type(labels)}")
+            print(f"specs shape: {specs.shape}, {type(specs)}")
+            specs = specs.to(device)
+            labels = labels.to(device)
+            weights = weights.to(device)
             optimizer.zero_grad()
             outputs = model(specs)
-
             loss = torch.nn.CrossEntropyLoss(reduction='none')(outputs, labels)
             weighted_loss = (loss * weights).mean()
             weighted_loss.backward()
@@ -83,7 +87,8 @@ def train_model_pickle(train_dir="./data/train_pkl", val_dir="./data/val_pkl", s
         val_preds, val_targets = [], []
         with torch.no_grad():
             for specs, labels, _ in val_loader:
-                specs, labels = specs.to(device), labels.to(device)
+                specs = specs.to(device)
+                labels.to(device)  # Use sub_labels (second column)
                 outputs = model(specs)
                 _, predicted = torch.max(outputs, 1)
                 val_preds.extend(predicted.cpu().numpy())

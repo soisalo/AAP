@@ -41,8 +41,10 @@ def process_files(fetures_dir, split_file):
     with open(split_file, 'r', encoding='utf-8') as f:
         lines = f.readlines()
 
-    base_dir = 'Project/AAP'
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) # Get the base directory of the project
 
+    base_dir = f"{base_dir}/Advanced Audio Processing Project" # Define the base directory for the dataset
+    
     # Create directory for this split
     if 'train' in split_file:
         split_dir = os.path.join(base_dir, 'dataset/train')
@@ -79,7 +81,7 @@ def process_files(fetures_dir, split_file):
 def main():
     # Define paths
     split_dir = 'bsdk10k-splits' # Directory containing the split csv files (train.csv, val.csv, test.csv)
-    audio_embeddings_dir = 'features/features/clap_audio_embeddings' # Directory containing the audio files
+    audio_embeddings_dir = 'data/features/clap_audio_embeddings' # Directory containing the audio files
 
     # Process each split file
     for split_file in os.listdir(split_dir):

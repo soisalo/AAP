@@ -49,8 +49,8 @@ class PickleAudioDataset(Dataset):
         with open(self.pkl_files[idx], "rb") as f:
             data = pickle.load(f)
         mel = data['features']               # precomputed Mel spectrogram
-        label = data['class_idx']            # integer label
-        confidence = data.get('confidence_score', 5)  # default to 5 if missing
+        label = int(data['class_idx'])          # integer label
+        confidence = int(data.get('confidence_score', 5))# default to 5 if missing
         weight = (confidence - 1) / 4.0     # Normalize 1-5 → 0-1
 
         return mel, label, weight
@@ -66,8 +66,10 @@ class CLAPAudioDataset(Dataset):
     def __getitem__(self, idx):
         data = np.load(self.npy_files[idx], allow_pickle=True).item()  # assume dict format
         embedding = torch.tensor(data['embedding'], dtype=torch.float32)
-        label = data['class_idx']
-        confidence = data.get('confidence_score', 5)
+        label = int(data['class_idx'])
+        #Change confidence to int and print type
+        confidence = int(data.get('confidence_score', 5))
+        print(f"Confidence score type: {type(confidence)}, value: {confidence}")
         weight = (confidence - 1) / 4.0
         return embedding, label, weight
 # --- 3. SIMPLE AUDIO CNN MODEL ---
