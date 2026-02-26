@@ -65,8 +65,8 @@ def train_model_pickle(train_dir="./dataset/train", val_dir="./dataset/val", sav
         running_loss = 0.0
         
         for specs, labels,  weights in train_loader:
-            print(f"Labels: {labels}, {type(labels)}")
-            print(f"specs shape: {specs.shape}, {type(specs)}")
+            #print(f"Labels: {labels}, {type(labels)}")
+            #print(f"specs shape: {specs.shape}, {type(specs)}")
             specs = specs.to(device)
             labels = labels.to(device)
             weights = weights.to(device)
