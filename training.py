@@ -60,11 +60,13 @@ def train_model_pickle(train_dir="./dataset/train", val_dir="./dataset/val", sav
     # --- 3. Setup model, device, optimizer ---
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = SimpleCLAPClassifier(num_classes=NUM_CLASSES, num_parents=5).to(device)
-
+    
+    """
     # Collect all labels first
     all_labels = np.array([train_dataset[i][1] for i in range(len(train_dataset))])
     all_parent_labels = np.array([train_dataset[i][3] for i in range(len(train_dataset))])  # top_classes is index 3
 
+    
     # Include class weights to handle class imbalance
     class_weights = compute_class_weight('balanced', classes=np.arange(NUM_CLASSES), y=all_labels)
     class_weights = torch.tensor(class_weights, dtype=torch.float32).to(device)
@@ -74,16 +76,23 @@ def train_model_pickle(train_dir="./dataset/train", val_dir="./dataset/val", sav
     parent_class_weights = compute_class_weight('balanced', classes=np.arange(5), y=all_parent_labels)
     parent_class_weights = torch.tensor(parent_class_weights, dtype=torch.float32).to(device)
     parent_criterion = torch.nn.CrossEntropyLoss(weight=parent_class_weights)
+    """
 
-    optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=1e-2)
+    optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=1e-4)
+    criterion = torch.nn.CrossEntropyLoss(label_smoothing=0.1)  # Label smoothing to help with generalization
 
+    #Learning rate scheduler (optional)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=2)
+    
     # Metrics lists
-    train_losses, val_losses, val_accuracies, val_hFs = [], [], [], []
+    train_losses, val_losses, val_accuracies, val_hFs, val_parent_accuracies = [], [], [], [], []
 
     print(f"Training on {device}...")
 
     num_epochs = 20
     patience = 5
+    best_val_acc = 0.0
+    patience_count = 0
 
     # Create the mapping tensor from your dictionary
     # Index = Child Class ID, Value = Parent Class ID
@@ -117,10 +126,10 @@ def train_model_pickle(train_dir="./dataset/train", val_dir="./dataset/val", sav
             child_loss = (raw_child_loss * weights * (1.0 + h_penalty)).mean()
 
             # 2. Parent Loss (Helping the model learn the broad category)
-            parent_loss = parent_criterion(parent_out, top_classes).mean()
+            parent_loss = criterion(parent_out, top_classes).mean()
 
             # 3. Total Loss (Alpha=0.3 is a good starting point for the parent auxiliary task)
-            total_loss = child_loss + 0.3 * parent_loss
+            total_loss = child_loss + 0.5 * parent_loss
 
             total_loss.backward()
             optimizer.step()
@@ -133,6 +142,7 @@ def train_model_pickle(train_dir="./dataset/train", val_dir="./dataset/val", sav
         # --- Validation ---
         model.eval()
         val_preds, val_targets = [], []
+        val_parent_preds, val_parent_targets = [], []
         epoch_val_loss = 0.0
         with torch.no_grad():
             for specs, labels, weights, top_classes in val_loader:
@@ -141,36 +151,54 @@ def train_model_pickle(train_dir="./dataset/train", val_dir="./dataset/val", sav
                 weights = weights.to(device)
                 #outputs = model(specs)
 
-                child_out, _ = model(specs)
+                child_out, parent_out = model(specs)
                 v_loss = criterion(child_out, labels).mean()
                 epoch_val_loss += v_loss.item()
-
+                
+                # Child predictions
                 _, predicted = torch.max(child_out, 1)
                 val_preds.extend(predicted.cpu().numpy())
                 val_targets.extend(labels.cpu().numpy())
 
-                #Implement patience-based early stopping based on validation accuracy
-                if epoch > 0 and val_acc < val_accuracies[-1]:
-                    patience_count += 1
-                    if patience_count >= patience:  # Stop if no improvement for 5 epochs
-                        print(f"Early stopping triggered at epoch {epoch+1}")
-                        break
-                else:
-                    patience_count = 0
+                # Parent predictions
+                _, predicted_parent = torch.max(parent_out, 1)
+                val_parent_preds.extend(predicted_parent.cpu().numpy())
+                val_parent_targets.extend(top_classes.cpu().numpy())
+
+               
                 
 
         val_acc = np.mean(np.array(val_preds) == np.array(val_targets))
         val_loss = epoch_val_loss / len(val_loader)
+        val_parent_acc = np.mean(np.array(val_parent_preds) == np.array(val_parent_targets)) # NEW
+
         hF, hP, hR = calculate_hierarchical_metrics(val_preds, val_targets, lambda_val=0.5)
+        
         val_accuracies.append(val_acc)
         val_losses.append(val_loss)
+        val_parent_accuracies.append(val_parent_acc)
         val_hFs.append(hF)
 
         print(f"Epoch {epoch+1}/{num_epochs} | "
               f"Train Loss: {epoch_loss:.4f} | "
               f"Val Loss: {val_loss:.4f} | "
-              f"Val Acc: {val_acc:.4f} | "
+              f"Val Child Acc: {val_acc:.4f} | "
+              f"Val Parent Acc: {val_parent_acc:.4f} | "
               f"hF: {hF:.4f} (P:{hP:.4f}, R:{hR:.4f})")
+        
+        scheduler.step(val_acc)
+        # --- Correct Early Stopping Logic ---
+        # Track the best accuracy to decide when to stop
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+            patience_count = 0
+            torch.save(model.state_dict(), save_path)
+            #print(f"New best accuracy! Model saved.")
+        else:
+            patience_count += 1
+            if patience_count >= patience:
+                print(f"Early stopping triggered at epoch {epoch+1}")
+                break
 
     # --- 5. Save trained model ---
     torch.save(model.state_dict(), save_path)

@@ -72,20 +72,28 @@ class SimpleCLAPClassifier(nn.Module):
     def __init__(self, embedding_dim=512, num_classes=NUM_CLASSES, num_parents=5):
         super().__init__()
         self.fc = nn.Sequential(
-            nn.Dropout(0.2),
-            nn.Linear(embedding_dim, 128),
-            nn.BatchNorm1d(128),
+            nn.Linear(embedding_dim, 256),
+            nn.BatchNorm1d(256),
             nn.ReLU(),
-            nn.Dropout(0.5),
+            nn.Dropout(0.3)
+        )
+
+        # 2. A "Thinking" Layer (Residual Block)
+        self.hidden = nn.Sequential(
+            nn.Linear(256, 256),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
+            nn.Dropout(0.4)
         )
         #Fine grain classification for all 22 classes
-        self.child_head = nn.Linear(128, num_classes)
+        self.child_head = nn.Linear(256, num_classes)
 
         #Coarse grain classification for 5 parent classes
-        self.parent_head = nn.Linear(128, num_parents)
+        self.parent_head = nn.Linear(256, num_parents)
 
     def forward(self, x):
         x = self.fc(x)
+        x = self.hidden(x) + x  # Residual connection
         return self.child_head(x), self.parent_head(x)
 
 # --- 3. HIERARCHICAL METRICS ---
