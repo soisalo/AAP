@@ -28,11 +28,7 @@ from dataset_classes import (
 def compute_accuracy(predictions, targets):
     """
     Compute overall classification accuracy.
-    Args:
-        predictions: Model predicted class labels.
-        targets: Ground truth class labels.
-    Returns:
-        Float accuracy value between 0 and 1.
+
     """
 
     predictions = np.array(predictions)
@@ -49,13 +45,6 @@ def compute_per_class_accuracy(predictions, targets, class_names):
     Compute accuracy separately for each class.
     This measures how well the model performs on each individual class.
     Uses confusion matrix for calculation.
-    Args:
-        predictions: Model predictions.
-        targets: Ground truth labels.
-        class_names: List of class label names.
-    Returns:
-        Dictionary mapping class name -> accuracy.
-        If a class has no samples, returns None for that class.
     """
     cm = confusion_matrix(targets, predictions)
 
@@ -69,7 +58,7 @@ def compute_per_class_accuracy(predictions, targets, class_names):
     return per_class
 
 
-def compute_confusion_matrix(predictions, targets):
+def compute_confusion_matrix(targets, predictions):
     """Return confusion matrix."""
     return confusion_matrix(targets, predictions)
 
@@ -83,14 +72,6 @@ def evaluate_model(model, dataloader, device, class_names, lambda_val=0.5):
     - Collects predictions
     - Computes all evaluation metrics
     - Returns them in a dictionary
-    Args:
-        model: Trained PyTorch model.
-        dataloader: DataLoader for validation/test data.
-        device: CPU or CUDA device.
-        class_names: List of class names.
-        lambda_val: Weight parameter for hierarchical metric.
-    Returns:
-        Dictionary containing all evaluation results.
     """
 
     model.eval()
@@ -120,9 +101,6 @@ def evaluate_predictions(predictions, targets, class_names, lambda_val: float = 
     """
     Compute all evaluation metrics from predictions and targets.
 
-    This function is independent of PyTorch and can be used
-    for any classification results.
-
     Metrics included:
     - Overall accuracy
     - Per-class accuracy
@@ -130,8 +108,6 @@ def evaluate_predictions(predictions, targets, class_names, lambda_val: float = 
     - Precision / Recall / F1-score
     - Hierarchical metrics
 
-    Returns:
-        Dictionary with all computed metrics.
     """
 
     results = {}
@@ -174,11 +150,6 @@ def plot_confusion_matrix(cm, class_names,figsize=(12, 10), save_path=None):
 
     """
     Plot confusion matrix using a heatmap.
-    Args:
-        cm: Confusion matrix as a 2D numpy array.
-        class_names: List of class names for axes labels.
-        figsize: Size of the plot.
-        save_path: If provided, saves the plot to this path.
     """
 
     plt.figure(figsize=figsize)
@@ -209,7 +180,6 @@ def main():
         for f in os.listdir(test_dir)
         if f.endswith(".pkl")
     ]
-
 
     test_dataset = PickleAudioDataset(test_files)
 
