@@ -74,11 +74,11 @@ class PickleAudioDataset(Dataset):
         """
         with open(self.pkl_files[idx], "rb") as f:
             data = pickle.load(f)
-        mel = data['features']               # precomputed Mel spectrogram
-        label = int(data['class_idx']) # integer label
-        top_class = int(data.get('top_class', -1))  # Optional top-level class
-        confidence = int(data.get('confidence_score', 0))# default to 5 if missing
-        weight = (confidence - 1) / 4.0     # Normalize 1-5 → 0-1
+        mel = data['features']
+        label = int(data['class_idx']) 
+        top_class = int(data.get('top_class', -1)) 
+        confidence = int(data.get('confidence_score', 0))
+        weight = (confidence - 1) / 4.0  # Normalize confidence to [0,1]
 
         return mel, label, weight, top_class
     
