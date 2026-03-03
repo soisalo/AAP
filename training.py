@@ -76,9 +76,12 @@ def train_model_pickle(train_dir="./dataset/train", val_dir="./dataset/val", sav
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = SimpleCLAPClassifier(num_classes=NUM_CLASSES, num_parents=5).to(device)
 
+    # Collect all labels first
+    all_labels = np.array([train_dataset[i][1] for i in range(len(train_dataset))])
+
     # Include class weights to handle class imbalance
     optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=1e-2)
-    class_weights = compute_class_weight('balanced', classes=np.arange(NUM_CLASSES), y=[data['label'] for data in train_dataset])
+    class_weights = compute_class_weight('balanced', classes=np.arange(NUM_CLASSES), y=all_labels)
     class_weights = torch.tensor(class_weights, dtype=torch.float32).to(device)
     criterion = torch.nn.CrossEntropyLoss(weight=class_weights)
 
