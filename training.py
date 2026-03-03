@@ -63,12 +63,19 @@ def train_model_pickle(train_dir="./dataset/train", val_dir="./dataset/val", sav
 
     # Collect all labels first
     all_labels = np.array([train_dataset[i][1] for i in range(len(train_dataset))])
+    all_parent_labels = np.array([train_dataset[i][3] for i in range(len(train_dataset))])  # top_classes is index 3
 
     # Include class weights to handle class imbalance
-    optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=1e-2)
     class_weights = compute_class_weight('balanced', classes=np.arange(NUM_CLASSES), y=all_labels)
     class_weights = torch.tensor(class_weights, dtype=torch.float32).to(device)
     criterion = torch.nn.CrossEntropyLoss(weight=class_weights)
+
+    # Parent class weights
+    parent_class_weights = compute_class_weight('balanced', classes=np.arange(5), y=all_parent_labels)
+    parent_class_weights = torch.tensor(parent_class_weights, dtype=torch.float32).to(device)
+    parent_criterion = torch.nn.CrossEntropyLoss(weight=parent_class_weights)
+
+    optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=1e-2)
 
     # Metrics lists
     train_losses, val_losses, val_accuracies, val_hFs = [], [], [], []
@@ -110,7 +117,7 @@ def train_model_pickle(train_dir="./dataset/train", val_dir="./dataset/val", sav
             child_loss = (raw_child_loss * weights * (1.0 + h_penalty)).mean()
 
             # 2. Parent Loss (Helping the model learn the broad category)
-            parent_loss = criterion(parent_out, top_classes).mean()
+            parent_loss = parent_criterion(parent_out, top_classes).mean()
 
             # 3. Total Loss (Alpha=0.3 is a good starting point for the parent auxiliary task)
             total_loss = child_loss + 0.3 * parent_loss
