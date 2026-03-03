@@ -1,6 +1,7 @@
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
+from sklearn.utils.class_weight import compute_class_weight
 import os
 import numpy as np
 import pickle
@@ -74,8 +75,13 @@ def train_model_pickle(train_dir="./dataset/train", val_dir="./dataset/val", sav
     # --- 4. Setup model, device, optimizer ---
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = SimpleCLAPClassifier(num_classes=NUM_CLASSES, num_parents=5).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
-    criterion = torch.nn.CrossEntropyLoss()
+
+    # Include class weights to handle class imbalance
+    optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=1e-2)
+    class_weights = compute_class_weight('balanced', classes=np.arange(NUM_CLASSES), y=[data['label'] for data in train_dataset])
+    class_weights = torch.tensor(class_weights, dtype=torch.float32).to(device)
+    criterion = torch.nn.CrossEntropyLoss(weight=class_weights)
+    
     # Metrics lists
     train_losses, val_losses, val_accuracies, val_hFs = [], [], [], []
 
