@@ -72,16 +72,17 @@ class SimpleCLAPClassifier(nn.Module):
     def __init__(self, embedding_dim=512, num_classes=NUM_CLASSES, num_parents=5):
         super().__init__()
         self.fc = nn.Sequential(
-            nn.Linear(embedding_dim, 256),
-            nn.BatchNorm1d(256),
+            nn.Dropout(0.2),
+            nn.Linear(embedding_dim, 128),
+            nn.BatchNorm1d(128),
             nn.ReLU(),
             nn.Dropout(0.5),
         )
-        #Fine grain classification for all classes
-        self.child_head = nn.Linear(256, num_classes)
+        #Fine grain classification for all 22 classes
+        self.child_head = nn.Linear(128, num_classes)
 
-        #Coarse grain classification for parent classes
-        self.parent_head = nn.Linear(256, num_parents)
+        #Coarse grain classification for 5 parent classes
+        self.parent_head = nn.Linear(128, num_parents)
 
     def forward(self, x):
         x = self.fc(x)
