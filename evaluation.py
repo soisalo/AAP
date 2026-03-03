@@ -139,8 +139,7 @@ def evaluate_predictions(predictions, targets, class_names, lambda_val: float = 
     - Per-class accuracy
     - Confusion matrix
     - Hierarchical metrics
-        - Precision / Recall / F1-score
-    
+        - Precision / Recall / F1-score for each class
 
     """
 
@@ -160,11 +159,11 @@ def evaluate_predictions(predictions, targets, class_names, lambda_val: float = 
     )
 
     # Hierarchical metrics - F1, Precision, Recall
-    matrics = compute_precision_recall_f1(
+    metrics = compute_precision_recall_f1(
         results["confusion_matrix"], class_names
     )
 
-    results["metrics"] = matrics
+    results["metrics"] = metrics
 
 
     return results
