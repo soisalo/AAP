@@ -73,7 +73,7 @@ def train_model_pickle(train_dir="./dataset/train", val_dir="./dataset/val", sav
 
     # --- 4. Setup model, device, optimizer ---
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = SimpleCLAPClassifier(num_classes=NUM_CLASSES).to(device)
+    model = SimpleCLAPClassifier(num_classes=NUM_CLASSES, num_parents=5).to(device)
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     criterion = torch.nn.CrossEntropyLoss()
     # Metrics lists
@@ -81,9 +81,9 @@ def train_model_pickle(train_dir="./dataset/train", val_dir="./dataset/val", sav
 
     print(f"Training on {device}...")
 
-    num_epochs = 40
+    num_epochs = 20
     patience = 5
-    total_val_loss = 0.0
+    
     # Create the mapping tensor from your dictionary
     # Index = Child Class ID, Value = Parent Class ID
     mapping_list = [IDX_PARENT_MAP[i] for i in range(len(IDX_PARENT_MAP))]
@@ -97,7 +97,7 @@ def train_model_pickle(train_dir="./dataset/train", val_dir="./dataset/val", sav
         for specs, labels,  weights, top_classes in train_loader:
             #print(f"Labels: {labels}, {type(labels)}")
             #print(f"specs shape: {specs.shape}, {type(specs)}")
-            specs = specs.to(device)
+            specs = specs.to(device).squeeze(1)  # Add channel dimension if needed
             labels = labels.to(device)
             weights = weights.to(device)
             top_classes = top_classes.to(device)
@@ -105,6 +105,24 @@ def train_model_pickle(train_dir="./dataset/train", val_dir="./dataset/val", sav
             #Zero the gradients
             optimizer.zero_grad()
 
+            #New implementation with hierarchical loss and confidence weighting:
+            child_out, parent_out = model(specs)     
+
+            # 1. Child Loss (Weighted by confidence and hierarchy)
+            raw_child_loss = criterion(child_out, labels)
+            h_penalty = hierarchical_loss(child_out, labels, mapping_tensor)
+
+            # Add 1.0 to penalty so it scales up errors (e.g., * 2.0) rather than zeroing them
+            child_loss = (raw_child_loss * weights * (1.0 + h_penalty)).mean()
+
+            # 2. Parent Loss (Helping the model learn the broad category)
+            parent_loss = criterion(parent_out, top_classes).mean()
+
+            # 3. Total Loss (Alpha=0.3 is a good starting point for the parent auxiliary task)
+            total_loss = child_loss + 0.3 * parent_loss
+
+            """
+            Old implementation without hierarchy or confidence weighting:
             outputs = model(specs)
             
             loss = criterion(outputs, labels)
@@ -113,11 +131,11 @@ def train_model_pickle(train_dir="./dataset/train", val_dir="./dataset/val", sav
 
             #Apply the confidence-based weights and the hierarchy penalty to the loss
             weighted_loss = (loss * weights * hierarchy_penalty).mean()
-            
-            weighted_loss.backward()
+            """
+            total_loss.backward()
             optimizer.step()
 
-            running_loss += weighted_loss.item()
+            running_loss += total_loss.item()
 
         epoch_loss = running_loss / len(train_loader)
         train_losses.append(epoch_loss)
@@ -125,21 +143,26 @@ def train_model_pickle(train_dir="./dataset/train", val_dir="./dataset/val", sav
         # --- Validation ---
         model.eval()
         val_preds, val_targets = [], []
+        epoch_val_loss = 0.0
         with torch.no_grad():
             for specs, labels, weights, top_classes in val_loader:
-                specs = specs.to(device)
+                specs = specs.to(device).squeeze(1)
                 labels = labels.to(device)  # Use sub_labels (second column)
                 weights = weights.to(device)
-                outputs = model(specs)
+                #outputs = model(specs)
 
-                # 1. Calculate Validation Loss (using logits, not predictions)
-                # We apply the same weighted/hierarchical logic here for consistency
+                child_out, _ = model(specs)
+                v_loss = criterion(child_out, labels).mean()
+                epoch_val_loss += v_loss.item()
+
+                """
+                Old logic without hierarchy or confidence weighting:
                 batch_loss = criterion(outputs, labels)
 
                 total_val_loss += batch_loss.item()
 
-                
-                _, predicted = torch.max(outputs, 1)
+                """
+                _, predicted = torch.max(child_out, 1)
                 val_preds.extend(predicted.cpu().numpy())
                 val_targets.extend(labels.cpu().numpy())
 
@@ -154,7 +177,7 @@ def train_model_pickle(train_dir="./dataset/train", val_dir="./dataset/val", sav
                 
 
         val_acc = np.mean(np.array(val_preds) == np.array(val_targets))
-        val_loss = total_val_loss / len(val_loader)
+        val_loss = epoch_val_loss / len(val_loader)
         hF, hP, hR = calculate_hierarchical_metrics(val_preds, val_targets, lambda_val=0.5)
         val_accuracies.append(val_acc)
         val_losses.append(val_loss)
@@ -172,6 +195,25 @@ def train_model_pickle(train_dir="./dataset/train", val_dir="./dataset/val", sav
 
     # --- 6. Plot metrics ---
     plot_training_metrics(train_losses, val_accuracies, val_losses, val_hFs, save_path="training_metrics.png")
+
+#Create synthetic training samples by interpolating between existing samples in the feature space (mixup augmentation)
+def mixup_data(x, y, alpha=0.2, device='cpu'):
+    '''Returns mixed inputs, pairs of targets, and lambda'''
+    if alpha > 0:
+        lam = np.random.beta(alpha, alpha)
+    else:
+        lam = 1
+
+    batch_size = x.size()[0]
+    index = torch.randperm(batch_size).to(device)
+
+    mixed_x = lam * x + (1 - lam) * x[index, :]
+    y_a, y_b = y, y[index]
+    return mixed_x, y_a, y_b, lam
+
+
+def mixup_criterion(criterion, pred, y_a, y_b, lam):
+    return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
 
 def main():
     
