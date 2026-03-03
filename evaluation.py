@@ -10,7 +10,7 @@ from py_compile import main
 import os
 import numpy as np
 import torch
-from sklearn.metrics import confusion_matrix, classification_report
+from sklearn.metrics import confusion_matrix
 import matplotlib.pyplot as plt
 import seaborn as sns
 from torch.utils.data import DataLoader
@@ -18,8 +18,7 @@ from dataset_classes import (
     PickleAudioDataset,
     SimpleCLAPClassifier,
     NUM_CLASSES,
-    CLASSES,
-    calculate_hierarchical_metrics
+    CLASSES
 )
 
 
@@ -61,6 +60,40 @@ def compute_per_class_accuracy(predictions, targets, class_names):
 def compute_confusion_matrix(targets, predictions):
     """Return confusion matrix."""
     return confusion_matrix(targets, predictions)
+
+def compute_precision_recall_f1(cm, class_names):
+    """"
+    Compute precision, recall and F1-score for each class based on confusion matrix.
+    """
+    metrics_dict = {}
+
+    for i, class_name in enumerate(class_names):
+        true_positive = cm[i, i]
+        false_positive = cm[:, i].sum() - true_positive
+        false_negative = cm[i, :].sum() - true_positive
+
+        precision = (
+            true_positive / (true_positive + false_positive)
+            if (true_positive + false_positive) > 0 else 0
+        )
+
+        recall = (
+            true_positive / (true_positive + false_negative)
+            if (true_positive + false_negative) > 0 else 0
+        )
+
+        f1 = (
+            2 * precision * recall / (precision + recall)
+            if (precision + recall) > 0 else 0
+        )
+
+        metrics_dict[class_name] = {
+            "precision": precision,
+            "recall": recall,
+            "f1_score": f1
+        }
+
+    return metrics_dict
 
 
 def evaluate_model(model, dataloader, device, class_names, lambda_val=0.5):
@@ -105,8 +138,9 @@ def evaluate_predictions(predictions, targets, class_names, lambda_val: float = 
     - Overall accuracy
     - Per-class accuracy
     - Confusion matrix
-    - Precision / Recall / F1-score
     - Hierarchical metrics
+        - Precision / Recall / F1-score
+    
 
     """
 
@@ -122,27 +156,16 @@ def evaluate_predictions(predictions, targets, class_names, lambda_val: float = 
 
     # Confusion matrix
     results["confusion_matrix"] = compute_confusion_matrix(
-        predictions, targets
+        targets, predictions
     )
 
-    # Standard classification metrics
-    results["classification_report"] = classification_report(
-        targets,
-        predictions,
-        target_names=class_names,
-        output_dict=True
+    # Hierarchical metrics - F1, Precision, Recall
+    matrics = compute_precision_recall_f1(
+        results["confusion_matrix"], class_names
     )
 
-    # Hierarchical metrics 
-    hF, hP, hR = calculate_hierarchical_metrics(
-        predictions,
-        targets,
-        lambda_val=lambda_val
-    )
+    results["metrics"] = matrics
 
-    results["hierarchical_F"] = hF
-    results["hierarchical_P"] = hP
-    results["hierarchical_R"] = hR
 
     return results
 
@@ -214,11 +237,11 @@ def main():
     )
 
     print("Accuracy:", results["accuracy"])
-    print("Hierarchical F1:", results["hierarchical_F"])  
-    print("Hierarchical Precision:", results["hierarchical_P"])
-    print("Hierarchical Recall:", results["hierarchical_R"])
-    print("Classification Report:")
-    print(results["classification_report"])
+    for class_name, scores in results["metrics"].items():
+        print(f"  {class_name}:")
+        print(f"    Precision: {scores['precision']:.4f}")
+        print(f"    Recall:    {scores['recall']:.4f}")
+        print(f"    F1-score:  {scores['f1_score']:.4f}")
 
 
 if __name__ == "__main__":
