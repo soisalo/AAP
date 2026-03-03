@@ -3,7 +3,6 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 import os
 import numpy as np
-import pickle
 from dataset_classes import PickleAudioDataset, SimpleCLAPClassifier, calculate_hierarchical_metrics, NUM_CLASSES, IDX_PARENT_MAP
 from plotting_utils import plot_training_metrics
 
