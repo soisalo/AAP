@@ -124,7 +124,7 @@ def evaluate_model(model, dataloader, device, class_names, lambda_val=0.5):
             labels = batch[1].to(device)
             
             outputs = model(specs)
-            _, predicted = torch.max(outputs, 1)
+            _, predicted = torch.max(outputs[0], 1)
             predictions.extend(predicted.cpu().numpy())
             targets.extend(labels.cpu().numpy())
 
@@ -225,7 +225,7 @@ def main():
     # Set device for evaluation
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model = SimpleCLAPClassifier(num_classes=NUM_CLASSES)
+    model = SimpleCLAPClassifier(num_classes=NUM_CLASSES, num_parents = 5)
     model.load_state_dict(
         torch.load("audio_cnn_model.pth", map_location=device, weights_only=True)
     )
